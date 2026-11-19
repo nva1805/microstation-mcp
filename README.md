@@ -36,8 +36,10 @@ Claude ──MCP stdio──> Python server ──COM (điều khiển)──> M
 | `ms_edit(commands, dry_run=True)` | Tạo line/linestring/shape/text/cell; set level/màu/nét; move; text_set; delete; join (nối thành vùng/chuỗi) |
 | `ms_undo` | Hoàn tác cả lô ms_edit gần nhất |
 | `kcs_check(file?, checks?)` | KCS: phân lớp, màu/nét, topology, dựng thửa + nhãn + diện tích; xuất CSV |
-| `ms_view(action)` | fit / zoom_window / zoom_to / zoom_ids + ảnh chụp |
-| `ms_screenshot` | Chụp đúng khung bản vẽ (VpWindow), PNG/JPEG, tự thu nhỏ |
+| `ms_view(action)` | fit / zoom_window / zoom_to / zoom_ids + ảnh vùng đó (dựng từ dữ liệu, tô đậm đối tượng) |
+| `ms_render(file?, bbox?, levels?, highlight?)` | Dựng ảnh từ dữ liệu, không đổi khung nhìn; dùng được cho file mở ngầm |
+| `ms_copy_from(file, levels?...)` | Chép đối tượng từ file khác vào file đang mở, xử lý trong server (302 đường trong 0,4 s), bỏ trùng |
+| `ms_screenshot` | Chụp cửa sổ thật (chỉ đúng khi MicroStation đang hiện trên màn hình) |
 | `ms_open`, `ms_save` | Mở file lên cửa sổ / lưu |
 | `ms_keyin(cmd)` | Key-in (chặn vba, mdl, delete, save, exit, ...) |
 

@@ -23,7 +23,7 @@ from fastmcp.utilities.types import Image
 from src.core import analysis, kcs
 from src.core.com import com
 from src.core.engine import WORK, engine, hexenc
-from src.core import screenshot
+from src.core import render, screenshot
 
 _backed_up: Dict[str, str] = {}
 
@@ -33,6 +33,15 @@ KEYIN_DENY = ("vba", "mdl", "exit", "quit", "close", "compress", "newfile", "del
 
 def _num(v: Optional[float]) -> str:
     return "" if v is None else repr(float(v))
+
+
+def _ms_windows() -> List[str]:
+    """Tiêu đề cửa sổ chính của mọi phiên MicroStation đang chạy (lớp MstnTop)."""
+    import win32gui
+    out: List[str] = []
+    win32gui.EnumWindows(lambda h, _: out.append(win32gui.GetWindowText(h))
+                         if win32gui.GetClassName(h) == "MstnTop" and win32gui.IsWindowVisible(h) else None, None)
+    return out
 
 
 def _active_path() -> str:
@@ -121,6 +130,10 @@ def register(server: FastMCP) -> None:
                     "active_file": app.ActiveDesignFile.FullName if has else None,
                     "active_model": app.ActiveModelReference.Name if has else None}
         st = com.run(_s)
+        wins = _ms_windows()
+        if len(wins) > 1:
+            st["warning"] = (f"Đang chạy {len(wins)} phiên MicroStation: {wins}. MCP chỉ điều khiển phiên đăng ký COM "
+                             "(thường là phiên mở đầu tiên) - nên đóng bớt để tránh ghi nhầm file.")
         if st["has_file"]:
             st["engine"] = engine.ensure()
             if engine.last_error:
@@ -136,6 +149,11 @@ def register(server: FastMCP) -> None:
         if not os.path.exists(path):
             raise ValueError(f"Không thấy file: {path}")
         p = os.path.abspath(path)
+        name = os.path.basename(p).lower()
+        if len(_ms_windows()) > 1 and any(t.lower().startswith(name + " [") for t in _ms_windows()):
+            raise RuntimeError(
+                f"'{os.path.basename(p)}' đang mở ở một phiên MicroStation khác - mở thêm sẽ bật hộp thoại "
+                "'File is currently in use' và treo. Hãy đóng bớt một phiên MicroStation.")
         com.run(lambda: com.app(require_file=False).OpenDesignFile(p, read_only))
         engine.reset()
         return {"opened": p, "read_only": read_only}
@@ -273,15 +291,22 @@ def register(server: FastMCP) -> None:
         return out
 
     # ================================================================= view ====
+    def _render_img(file, bbox, levels=None, highlight=(), width=1400, title=None):
+        d = engine.dump(file=file, levels=levels, bbox=bbox, geometry=True, style=2)
+        png = render.render(d["elements"], bbox, width=width, highlight=highlight, fmt="png", title=title)
+        return Image(data=png, format="png")
+
     @server.tool()
     def ms_view(action: Literal["fit", "zoom_window", "zoom_to", "zoom_ids"], view: int = 1,
                 bbox: Optional[List[float]] = None, x: Optional[float] = None, y: Optional[float] = None,
-                radius: float = 20.0, ids: Optional[List[str]] = None,
-                shot: bool = True) -> Any:
-        """Điều khiển khung nhìn trên file đang mở, tùy chọn trả kèm ảnh chụp.
+                radius: float = 20.0, ids: Optional[List[str]] = None, shot: bool = True,
+                source: Literal["render", "window"] = "render") -> Any:
+        """Đưa khung nhìn MicroStation tới vùng cần xem và trả kèm ảnh vùng đó.
         fit: toàn bộ; zoom_window: bbox=[xmin,ymin,xmax,ymax]; zoom_to: tâm x,y bán kính radius (m);
-        zoom_ids: phóng tới các đối tượng theo id (dùng với kết quả kcs_check).
-        shot=True: trả kèm ảnh JPEG đúng khung nhìn."""
+        zoom_ids: phóng tới các đối tượng theo id (tô đậm chúng trong ảnh) - dùng với kcs_check.
+        source='render' (mặc định): ảnh DỰNG TỪ DỮ LIỆU file đang mở - luôn đúng vùng kể cả khi cửa sổ
+        MicroStation bị che/thu nhỏ (không gồm file tham chiếu). source='window': chụp cửa sổ thật
+        (chỉ đúng khi cửa sổ MicroStation đang hiện trên màn hình)."""
         if action == "zoom_ids":
             d = engine.dump(ids=ids or [], geometry=False)
             rs = [e["r"] for e in d["elements"]]
@@ -300,8 +325,7 @@ def register(server: FastMCP) -> None:
             else:
                 ext = v.Extents
                 aspect = ext.X / ext.Y if ext.Y else 1.0
-                w, h = bbox[2] - bbox[0], bbox[3] - bbox[1]
-                w, h = max(w, 0.5), max(h, 0.5)
+                w, h = max(bbox[2] - bbox[0], 0.5), max(bbox[3] - bbox[1], 0.5)
                 if w / h > aspect:
                     h = w / aspect
                 else:
@@ -310,22 +334,130 @@ def register(server: FastMCP) -> None:
                 v.Origin = app.Point3dFromXYZ(cx - w / 2, cy - h / 2, v.Origin.Z)
                 v.Extents = app.Point3dFromXYZ(w, h, ext.Z)
             v.Redraw()
-        com.run(_do)
+            o, e = v.Origin, v.Extents
+            return [o.X, o.Y, o.X + e.X, o.Y + e.Y]
+        view_box = com.run(_do)
         if not shot:
-            return {"ok": True, "bbox": bbox}
-        time.sleep(0.3)
-        data, what = screenshot.capture(view=view, fmt="jpeg")
-        return Image(data=data, format="jpeg") if data else {"ok": True, "screenshot_error": what}
+            return {"ok": True, "view_bbox": view_box}
+        if source == "window":
+            time.sleep(0.3)
+            data, what = screenshot.capture(view=view, fmt="jpeg")
+            return Image(data=data, format="jpeg") if data else {"ok": True, "screenshot_error": what}
+        return _render_img(None, view_box, highlight=ids or (), title=os.path.basename(_active_path()))
+
+    @server.tool()
+    def ms_render(file: Optional[str] = None, bbox: Optional[List[float]] = None,
+                  levels: Optional[List[int]] = None, highlight: Optional[List[str]] = None,
+                  width: int = 1400) -> Any:
+        """Dựng ảnh bản vẽ từ dữ liệu mà KHÔNG đổi khung nhìn MicroStation. Dùng được cho file mở ngầm (file=).
+        bbox=None: toàn bộ; levels: chỉ vẽ các level này; highlight: id cần tô đậm (màu hồng)."""
+        return _render_img(file, bbox, levels, highlight or (), width,
+                           title=os.path.basename(file) if file else None)
 
     @server.tool()
     def ms_screenshot(view: int = 1, full_window: bool = False,
                       format: Literal["png", "jpeg"] = "png", max_width: int = 1600) -> Any:
-        """Chụp khung bản vẽ (VpWindow) của MicroStation - chỉ vùng bản vẽ, không lẫn menu/thanh công cụ.
-        full_window=True: cả cửa sổ. format='jpeg' cho ảnh nhẹ hơn nhiều."""
+        """Chụp cửa sổ MicroStation thật (khung bản vẽ VpWindow). Chỉ đúng khi cửa sổ MicroStation đang hiển thị
+        trên màn hình - nếu bị cửa sổ khác che, MicroStation không vẽ lại và ảnh có thể là ảnh cũ.
+        Muốn ảnh luôn đúng: dùng ms_render / ms_view."""
         data, what = screenshot.capture(view=view, full_window=full_window, fmt=format, max_width=max_width)
         if not data:
             raise RuntimeError(what)
         return Image(data=data, format=format)
+
+    # ================================================================= copy ====
+    @server.tool()
+    def ms_copy_from(file: str, levels: Optional[List[int]] = None, types: Optional[List[str]] = None,
+                     bbox: Optional[List[float]] = None, ids: Optional[List[str]] = None,
+                     skip_existing: bool = True, dry_run: bool = True) -> Dict[str, Any]:
+        """Chép đối tượng từ một file .dgn khác (mở ngầm, chỉ đọc) vào FILE ĐANG MỞ - xử lý hoàn toàn trong server,
+        dữ liệu không đi qua hội thoại. Lọc theo levels/types/bbox/ids.
+        Giữ level, kiểu nét, lực nét. Màu: giữ chỉ số nếu là màu bảng (0-255); màu riêng (true color) của file
+        nguồn quy về chỉ số cùng RGB trong file đích, không có thì dùng màu chuẩn PL22 của level.
+        Hỗ trợ Line, LineString, Shape, ComplexChain/Shape (thành LineString/Shape), Text; loại khác được báo bỏ qua.
+        skip_existing: bỏ đối tượng trùng hình học đã có ở file đích (cùng level).
+        Mặc định dry_run=True (chỉ thống kê); dry_run=False để ghi (có sao lưu, ms_undo hoàn tác cả lô)."""
+        if not os.path.exists(file):
+            raise ValueError(f"Không thấy file: {file}")
+        if os.path.normcase(os.path.abspath(file)) == os.path.normcase(_active_path()):
+            raise ValueError("File nguồn trùng file đang mở (file đích). Hãy mở file cần ghi trên MicroStation.")
+        rules = analysis.load_rules()
+        src = engine.dump(file=file, levels=levels, types=analysis.parse_types(types), bbox=bbox, ids=ids,
+                          geometry=True, style=1)
+        dst = engine.dump(levels=levels, bbox=bbox, geometry=True)
+        rgb_to_idx: Dict[int, int] = {}
+        for i, v in enumerate(dst.get("palette") or []):
+            rgb_to_idx.setdefault(v, i)
+
+        def key(lv, pts):
+            r = [(round(p[0], 3), round(p[1], 3)) for p in pts]
+            return (lv, tuple(min(r, r[::-1])))
+
+        have = {key(e["lv"], e["v"]) for e in dst["elements"] if "v" in e}
+        cmds: List[Dict[str, Any]] = []
+        skipped: Dict[str, int] = {}
+        dup = 0
+        for e in src["elements"]:
+            t, lv = e["t"], e["lv"]
+            c: Dict[str, Any] = {"level": lv}
+            col = e.get("c", -1)
+            if 0 <= col <= 255:
+                c["color"] = col
+            elif e.get("rgb", -1) in rgb_to_idx:
+                c["color"] = rgb_to_idx[e["rgb"]]
+            if (e.get("w") if e.get("w") is not None else -1) >= 0:
+                c["weight"] = e["w"]
+            ls = str(e.get("ls", ""))
+            if ls not in ("", "?", "ByLevel"):
+                c["style"] = ls
+            if t in (3, 4, 12) and len(e.get("v", [])) >= 2:
+                c.update(op="line" if len(e["v"]) == 2 else "linestring", points=e["v"])
+            elif t in (6, 14) and len(e.get("v", [])) >= 3:
+                c.update(op="shape", points=e["v"])
+            elif t == 17 and e.get("tx") and "o" in e:
+                c.update(op="text", text=e["tx"], x=e["o"][0], y=e["o"][1], height=e.get("h") or None)
+                c.pop("style", None)
+            else:
+                k = analysis.type_name(t)
+                skipped[k] = skipped.get(k, 0) + 1
+                continue
+            if skip_existing and "points" in c and key(lv, c["points"]) in have:
+                dup += 1
+                continue
+            cmds.append(_defaults(c, rules))
+        by: Dict[str, int] = {}
+        for c in cmds:
+            k = f'level {c["level"]} {c["op"]}'
+            by[k] = by.get(k, 0) + 1
+        out: Dict[str, Any] = {"source": src["header"].get("file"), "target": _active_path(),
+                               "read_source_s": src["seconds"], "to_copy": len(cmds), "by_level_op": by,
+                               "skipped_unsupported": skipped, "skipped_already_present": dup}
+        if dry_run or not cmds:
+            out["dry_run"] = dry_run
+            return out
+        bad_lv = sorted({c["level"] for c in cmds} - set(_active_levels()))
+        if bad_lv:
+            raise ValueError(f"File đích không có level: {bad_lv}")
+        target = out["target"]
+        if target not in _backed_up:
+            bdir = os.path.join(WORK, "backups")
+            os.makedirs(bdir, exist_ok=True)
+            bpath = os.path.join(bdir, f"{os.path.splitext(os.path.basename(target))[0]}_{time.strftime('%Y%m%d_%H%M%S')}.dgn")
+            shutil.copy2(target, bpath)
+            _backed_up[target] = bpath
+        t0 = time.time()
+        res = engine.apply([_to_tsv(c) for c in cmds])
+        warns: Dict[str, int] = {}
+        for r in res:
+            if r.get("warn"):
+                warns[r["warn"]] = warns.get(r["warn"], 0) + 1
+        out.update(applied=sum(1 for r in res if r.get("ok")),
+                   failed=[{"i": r["i"], "error": r.get("err")} for r in res if not r.get("ok")][:20],
+                   warnings=warns, new_ids_first=[r["id"] for r in res if r.get("id")][:20],
+                   new_id_range=[next((r["id"] for r in res if r.get("id")), None), next((r["id"] for r in reversed(res) if r.get("id")), None)],
+                   write_s=round(time.time() - t0, 2), backup=_backed_up[target],
+                   undo="ms_undo hoàn tác toàn bộ lô này")
+        return out
 
     @server.tool()
     def ms_keyin(command: str) -> Dict[str, Any]:

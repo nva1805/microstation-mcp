@@ -30,6 +30,7 @@ Private gOut As Integer
 Private gOutOpen As Boolean
 Private gT(0 To 7) As Double
 Private gStyles As Collection
+Private gWarn As String
 ' line style reading is expensive for custom styles (~0.5 ms/element):
 ' gStyleMode 0 = none, 1 = all, 2 = first 30 per level; gStyleLv = always read on these levels
 Private gStyleMode As Long
@@ -457,12 +458,14 @@ Private Sub DoApply()
     For i = 1 To gCmdCount
         f = Split(gCmds(i), vbTab)
         res = ""
+        gWarn = ""
         Err.Clear
         On Error Resume Next
         res = ApplyOne(f)
         If Err.Number <> 0 Then
             W "{""kind"":""res"",""i"":" & i & ",""ok"":false,""err"":" & J(Err.Description) & "}"
         Else
+            If gWarn <> "" Then res = res & ",""warn"":" & J(gWarn)
             W "{""kind"":""res"",""i"":" & i & ",""ok"":true" & res & "}"
         End If
         On Error GoTo 0
@@ -494,7 +497,14 @@ Private Sub Sym(el As Element, ByVal lv As String, ByVal col As String, ByVal wt
     If lv <> "" Then el.Level = ActiveDesignFile.Levels.FindByCode(CLng(lv))
     If col <> "" Then el.Color = CLng(col)
     If wt <> "" Then el.LineWeight = CLng(wt)
-    If st <> "" Then el.LineStyle = ActiveDesignFile.LineStyles(st)
+    If st <> "" Then
+        ' a style missing from this file must not lose the element: keep default, report a warning
+        On Error Resume Next
+        el.LineStyle = ActiveDesignFile.LineStyles(st)
+        If Err.Number <> 0 Then gWarn = "line style not found: " & st
+        Err.Clear
+        On Error GoTo 0
+    End If
 End Sub
 
 Private Function Rot(ByVal deg As Double) As Matrix3d
