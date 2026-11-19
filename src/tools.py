@@ -373,127 +373,105 @@ def register(server: FastMCP) -> None:
                      bbox: Optional[List[float]] = None, ids: Optional[List[str]] = None,
                      skip_existing: bool = True, points_level: Optional[int] = None, point_tol: float = 0.05,
                      dry_run: bool = True) -> Dict[str, Any]:
-        """Chép đối tượng từ một file .dgn khác (mở ngầm, chỉ đọc) vào FILE ĐANG MỞ - xử lý hoàn toàn trong server,
-        dữ liệu không đi qua hội thoại. Lọc theo levels/types/bbox/ids.
-        points_level (vd 12 = số hiệu điểm đo): CHỈ vẽ theo các điểm đã có trong file đích ở level đó - mỗi đỉnh
-        đường nguồn phải có điểm (gốc chữ/cell/điểm) trong bán kính point_tol (m) và được bắt đúng vào tọa độ điểm;
-        đỉnh không có điểm làm đường bị ngắt, chỉ giữ các đoạn có điểm ở cả hai đầu.
-        Giữ level, kiểu nét, lực nét. Màu: giữ chỉ số nếu là màu bảng (0-255); màu riêng (true color) của file
-        nguồn quy về chỉ số cùng RGB trong file đích, không có thì dùng màu chuẩn PL22 của level.
-        Hỗ trợ Line, LineString, Shape, ComplexChain/Shape (thành LineString/Shape), Text; loại khác được báo bỏ qua.
-        skip_existing: bỏ đối tượng trùng hình học đã có ở file đích (cùng level).
+        """Chép SÂU đối tượng từ một file .dgn khác (mở ngầm, chỉ đọc) vào FILE ĐANG MỞ, xử lý hoàn toàn trong server.
+        Dùng CopyElement của MicroStation: giữ NGUYÊN mọi thuộc tính (màu, ByLevel, lực/kiểu nét, class, linkage,
+        dữ liệu gắn kèm) và tự quy đổi level/kiểu nét/màu sang file đích - mọi loại phần tử (đường, chữ, cell...).
+        Lọc theo levels/types/bbox/ids. skip_existing: bỏ đường trùng hình học đã có ở file đích (cùng level).
+        points_level (vd 12 = số hiệu điểm đo): CHỈ vẽ theo điểm đã có ở level đó trong file đích - mỗi đỉnh phải có
+        điểm trong bán kính point_tol (m) và được bắt vào tọa độ điểm; đỉnh không có điểm làm đường bị ngắt, chỉ giữ
+        các đoạn có điểm ở cả hai đầu (vẫn là bản chép sâu, chỉ sửa đỉnh).
         Mặc định dry_run=True (chỉ thống kê); dry_run=False để ghi (có sao lưu, ms_undo hoàn tác cả lô)."""
         if not os.path.exists(file):
             raise ValueError(f"Không thấy file: {file}")
         if os.path.normcase(os.path.abspath(file)) == os.path.normcase(_active_path()):
             raise ValueError("File nguồn trùng file đang mở (file đích). Hãy mở file cần ghi trên MicroStation.")
-        rules = analysis.load_rules()
         src = engine.dump(file=file, levels=levels, types=analysis.parse_types(types), bbox=bbox, ids=ids,
-                          geometry=True, style=1)
+                          geometry=True)
         dst = engine.dump(levels=levels, bbox=bbox, geometry=True)
-        rgb_to_idx: Dict[int, int] = {}
-        for i, v in enumerate(dst.get("palette") or []):
-            rgb_to_idx.setdefault(v, i)
 
         def key(lv, pts):
             r = [(round(p[0], 3), round(p[1], 3)) for p in pts]
             return (lv, tuple(min(r, r[::-1])))
 
         have = {key(e["lv"], e["v"]) for e in dst["elements"] if "v" in e}
-        cmds: List[Dict[str, Any]] = []
-        skipped: Dict[str, int] = {}
-        dup = 0
         snap_stats = {"vertices_on_point": 0, "vertices_without_point": 0, "lines_split": 0, "lines_dropped": 0}
-        snap = None
+        match = None
         if points_level is not None:
             from shapely import STRtree
             from shapely.geometry import Point
-            pe = [e for e in engine.dump(levels=[points_level], geometry=True)["elements"] if "o" in e or
-                  (e["t"] == 22 and e.get("v"))]
+            pe = [e for e in engine.dump(levels=[points_level], geometry=True)["elements"]
+                  if "o" in e or (e["t"] == 22 and e.get("v"))]
             ppos = [e["o"] if "o" in e else e["v"][0] for e in pe]
             if not ppos:
                 raise ValueError(f"File đích không có điểm nào ở level {points_level}")
             pgeo = [Point(p) for p in ppos]
             ptree = STRtree(pgeo)
 
-            def snap(v):
-                """Trả các chuỗi đỉnh liên tiếp đều có điểm, đã bắt vào tọa độ điểm."""
-                runs, cur = [], []
-                for p in v:
-                    j = ptree.nearest(Point(p))
-                    if pgeo[j].distance(Point(p)) <= point_tol:
-                        snap_stats["vertices_on_point"] += 1
-                        q = list(ppos[j])
-                        if not cur or cur[-1] != q:
-                            cur.append(q)
-                    else:
-                        snap_stats["vertices_without_point"] += 1
-                        if len(cur) >= 2:
-                            runs.append(cur)
-                        cur = []
-                if len(cur) >= 2:
-                    runs.append(cur)
-                return runs
+            def match(p):
+                j = ptree.nearest(Point(p))
+                return list(ppos[j]) if pgeo[j].distance(Point(p)) <= point_tol else None
 
+        jobs: List[tuple] = []   # (src_id, run_start, run_end, points or None, level, kind)
+        dup = 0
         for e in src["elements"]:
-            t, lv = e["t"], e["lv"]
-            c: Dict[str, Any] = {"level": lv}
-            col = e.get("c", -1)
-            if 0 <= col <= 255:
-                c["color"] = col
-            elif e.get("rgb", -1) in rgb_to_idx:
-                c["color"] = rgb_to_idx[e["rgb"]]
-            if (e.get("w") if e.get("w") is not None else -1) >= 0:
-                c["weight"] = e["w"]
-            ls = str(e.get("ls", ""))
-            if ls not in ("", "?", "ByLevel"):
-                c["style"] = ls
-            if t in (3, 4, 12) and len(e.get("v", [])) >= 2:
-                c.update(op="line" if len(e["v"]) == 2 else "linestring", points=e["v"])
-            elif t in (6, 14) and len(e.get("v", [])) >= 3:
-                c.update(op="shape", points=e["v"])
-            elif t == 17 and e.get("tx") and "o" in e:
-                c.update(op="text", text=e["tx"], x=e["o"][0], y=e["o"][1], height=e.get("h") or None)
-                c.pop("style", None)
-            else:
-                k = analysis.type_name(t)
-                skipped[k] = skipped.get(k, 0) + 1
-                continue
-            variants = [c]
-            if snap is not None and "points" in c:
-                pts = c["points"]
-                if c["op"] == "shape" and pts[0] != pts[-1]:
-                    pts = pts + [pts[0]]
-                runs = snap(pts)
-                if len(runs) == 1 and len(runs[0]) == len(pts) and c["op"] == "shape":
-                    variants = [dict(c, points=runs[0][:-1] if runs[0][0] == runs[0][-1] else runs[0])]
-                else:
-                    if not runs:
-                        snap_stats["lines_dropped"] += 1
-                    elif len(runs) > 1 or len(runs[0]) < len(pts):
-                        snap_stats["lines_split"] += 1
-                    variants = [dict(c, op="line" if len(r) == 2 else "linestring", points=r) for r in runs]
-            for v in variants:
-                if skip_existing and "points" in v and key(lv, v["points"]) in have:
+            lv, v = e["lv"], e.get("v")
+            if match is None or not v or len(v) < 2:
+                if skip_existing and v and key(lv, v) in have:
                     dup += 1
                     continue
-                cmds.append(_defaults(v, rules))
+                jobs.append((e["id"], -1, -1, None, lv, analysis.type_name(e["t"])))
+                continue
+            closed = e["t"] in (6, 14)
+            pts = v + [v[0]] if closed and v[0] != v[-1] else v
+            snapped = [match(p) for p in pts]
+            for s in snapped:
+                snap_stats["vertices_on_point" if s else "vertices_without_point"] += 1
+            if all(snapped):
+                if skip_existing and key(lv, snapped) in have:
+                    dup += 1
+                    continue
+                if closed or e["t"] not in (3, 4):   # vùng/chuỗi phức: dựng từ bản chép làm mẫu
+                    jobs.append((e["id"], -2, -2, snapped, lv, analysis.type_name(e["t"])))
+                else:
+                    jobs.append((e["id"], 0, len(snapped) - 1, snapped, lv, analysis.type_name(e["t"])))
+                continue
+            runs, start = [], None
+            for i, s in enumerate(snapped + [None]):
+                if s and start is None:
+                    start = i
+                elif not s and start is not None:
+                    if i - start >= 2:
+                        runs.append((start, i - 1))
+                    start = None
+            if not runs:
+                snap_stats["lines_dropped"] += 1
+                continue
+            snap_stats["lines_split"] += 1
+            for a, b in runs:
+                rp = snapped[a:b + 1]
+                if skip_existing and key(lv, rp) in have:
+                    dup += 1
+                    continue
+                degenerate = any(rp[i] == rp[i + 1] for i in range(len(rp) - 1))
+                if closed or e["t"] not in (3, 4) or degenerate:
+                    rp = [p for i, p in enumerate(rp) if i == 0 or p != rp[i - 1]]
+                    if len(rp) >= 2:
+                        jobs.append((e["id"], -2, -2, rp, lv, "LineString"))
+                else:
+                    jobs.append((e["id"], a, b, rp, lv, analysis.type_name(e["t"])))
         by: Dict[str, int] = {}
-        for c in cmds:
-            k = f'level {c["level"]} {c["op"]}'
+        for j in jobs:
+            k = f"level {j[4]} {j[5]}"
             by[k] = by.get(k, 0) + 1
         out: Dict[str, Any] = {"source": src["header"].get("file"), "target": _active_path(),
-                               "read_source_s": src["seconds"], "to_copy": len(cmds), "by_level_op": by,
-                               "skipped_unsupported": skipped, "skipped_already_present": dup}
-        if snap is not None:
+                               "read_source_s": src["seconds"], "to_copy": len(jobs), "by_level_type": by,
+                               "skipped_already_present": dup, "method": "CopyElement (chép sâu)"}
+        if match is not None:
             out["points_level"] = points_level
             out["snap"] = snap_stats
-        if dry_run or not cmds:
+        if dry_run or not jobs:
             out["dry_run"] = dry_run
             return out
-        bad_lv = sorted({c["level"] for c in cmds} - set(_active_levels()))
-        if bad_lv:
-            raise ValueError(f"File đích không có level: {bad_lv}")
         target = out["target"]
         if target not in _backed_up:
             bdir = os.path.join(WORK, "backups")
@@ -501,16 +479,13 @@ def register(server: FastMCP) -> None:
             bpath = os.path.join(bdir, f"{os.path.splitext(os.path.basename(target))[0]}_{time.strftime('%Y%m%d_%H%M%S')}.dgn")
             shutil.copy2(target, bpath)
             _backed_up[target] = bpath
+        tsv = [f"{sid}\t{a}\t{b}\t{_pts(p) if p else ''}" for sid, a, b, p, _lv, _k in jobs]
         t0 = time.time()
-        res = engine.apply([_to_tsv(c) for c in cmds])
-        warns: Dict[str, int] = {}
-        for r in res:
-            if r.get("warn"):
-                warns[r["warn"]] = warns.get(r["warn"], 0) + 1
-        out.update(applied=sum(1 for r in res if r.get("ok")),
-                   failed=[{"i": r["i"], "error": r.get("err")} for r in res if not r.get("ok")][:20],
-                   warnings=warns, new_ids_first=[r["id"] for r in res if r.get("id")][:20],
-                   new_id_range=[next((r["id"] for r in res if r.get("id")), None), next((r["id"] for r in reversed(res) if r.get("id")), None)],
+        res = engine.copy(file, tsv)
+        ok_ids = [r["id"] for r in res if r.get("ok") and r.get("id")]
+        out.update(applied=len(ok_ids),
+                   failed=[{"src_id": jobs[r["i"] - 1][0], "error": r.get("err")} for r in res if not r.get("ok")][:20],
+                   new_ids_first=ok_ids[:20], new_id_range=[ok_ids[0], ok_ids[-1]] if ok_ids else None,
                    write_s=round(time.time() - t0, 2), backup=_backed_up[target],
                    undo="ms_undo hoàn tác toàn bộ lô này")
         return out

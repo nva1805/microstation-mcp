@@ -231,6 +231,14 @@ class Engine:
         return data
 
     # ------------------------------------------------------------- apply -----
+    def copy(self, file: str, jobs: List[str]) -> List[Dict[str, Any]]:
+        """Chép sâu phần tử từ file (mở ngầm chỉ đọc) vào model đang mở bằng CopyElement."""
+        if self.ensure() != "vba":
+            raise EngineError(f"Chép cần bộ máy VBA. Lỗi khi nạp VBA: {self.last_error}")
+        com.run(lambda: self._keyin(com.app(), "mark"))
+        rows = self._call_vba({"op": "copy", "file": hexenc(os.path.abspath(file))}, commands=jobs)
+        return [r for r in rows if r.get("kind") == "res"]
+
     def apply(self, commands: List[str]) -> List[Dict[str, Any]]:
         mode = self.ensure()
         if mode != "vba":

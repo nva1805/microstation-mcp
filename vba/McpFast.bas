@@ -191,6 +191,8 @@ Public Sub Main()
             DoDump
         Case "apply"
             DoApply
+        Case "copy"
+            DoCopy
         Case Else
             W "{""kind"":""error"",""err"":" & J("unknown op " & gOp) & "}"
     End Select
@@ -450,6 +452,83 @@ Private Function Attrs(el As Element, ByVal t As Long) As String
     Exit Function
 bad:
     Attrs = s & ",""aerr"":" & J(Err.Description)
+End Function
+
+' ------------------------------------------------------------------ copy ---
+' Deep copy from a background-opened file (gFile) into the active model with
+' ModelReference.CopyElement, which keeps every attribute (symbology, ByLevel,
+' class, linkages) and remaps levels/styles/colors to the destination.
+' Command fields: srcId, runStart, runEnd, snapped points "x,y;x,y" ("" = unchanged)
+' runStart = -2 means: build a new line from the points using the copy as template.
+Private Sub DoCopy()
+    Dim df As DesignFile, sm As ModelReference, i As Long, f() As String, res As String
+    Set df = OpenDesignFileForProgram(gFile, True)
+    Set sm = df.DefaultModelReference
+    For i = 1 To gCmdCount
+        f = Split(gCmds(i), vbTab)
+        res = ""
+        gWarn = ""
+        Err.Clear
+        On Error Resume Next
+        res = CopyOne(sm, f)
+        If Err.Number <> 0 Then
+            W "{""kind"":""res"",""i"":" & i & ",""ok"":false,""err"":" & J(Err.Description) & "}"
+        Else
+            W "{""kind"":""res"",""i"":" & i & ",""ok"":true" & res & "}"
+        End If
+        On Error GoTo 0
+    Next i
+    df.Close
+End Sub
+
+Private Function CopyOne(sm As ModelReference, f() As String) As String
+    Dim src As Element, ne As Element, le As Element, p() As Point3d, chk() As Point3d
+    Dim nv As Long, ra As Long, rb As Long, i As Long, inModel As Boolean, bad As Boolean
+    Set src = sm.GetElementByID(DLongFromString(f(0)))
+    Set ne = ActiveModelReference.CopyElement(src)
+    inModel = (DLongToString(ne.ID) <> "0")
+    If f(3) <> "" Then
+        p = Pts(f(3))
+        ra = CLng(f(1))
+        rb = CLng(f(2))
+        If ra >= 0 And ne.IsVertexList And (ne.Type = 3 Or ne.Type = 4) Then
+            nv = UBound(ne.AsVertexList.GetVertices) + 1
+            For i = nv - 1 To rb + 1 Step -1
+                ne.AsVertexList.RemoveVertex i
+            Next i
+            For i = 1 To ra
+                ne.AsVertexList.RemoveVertex 0
+            Next i
+            For i = 0 To UBound(p)
+                ne.AsVertexList.ModifyVertex i, p(i)
+            Next i
+            ' verify the edit really produced the requested vertices
+            chk = ne.AsVertexList.GetVertices
+            bad = (UBound(chk) <> UBound(p))
+            If Not bad Then
+                For i = 0 To UBound(p)
+                    If Abs(chk(i).X - p(i).X) > 0.0005 Or Abs(chk(i).Y - p(i).Y) > 0.0005 Then bad = True
+                Next i
+            End If
+            If bad Then
+                If inModel Then ActiveModelReference.RemoveElement ne
+                Err.Raise 5, , "vertex edit check failed"
+            End If
+            If inModel Then
+                ne.Rewrite
+            Else
+                ActiveModelReference.AddElement ne
+            End If
+        Else
+            Set le = CreateLineElement1(ne, p)
+            ActiveModelReference.AddElement le
+            If inModel Then ActiveModelReference.RemoveElement ne
+            Set ne = le
+        End If
+    ElseIf Not inModel Then
+        ActiveModelReference.AddElement ne
+    End If
+    CopyOne = ",""id"":""" & DLongToString(ne.ID) & """"
 End Function
 
 ' ----------------------------------------------------------------- apply ---
