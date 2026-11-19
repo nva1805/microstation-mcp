@@ -1,0 +1,114 @@
+{
+  "_nguon": "TT 26/2024/TT-BTNMT (VBHN 34, đã sửa đổi bởi TT 23/2025/TT-BNNMT). Phụ lục 21: bảng phân lớp; Phụ lục 22 mục I.3: màu; I.2: lực nét mặc định 0,15 mm; I.4: ranh thửa liên tục khép kín, nhà nét đứt.",
+  "_ghi_chu": "File này sửa được. 'kinds': line | text | cell | dim | point. 'color': nhóm màu trong color_groups. 'boundary': true = tham gia tạo thửa (PL21: 'Là ranh giới thửa').",
+
+  "color_groups": {
+    "black": {"label": "Đen (PL22: R=G=B=255 - chỉ số màu 0, in ra đen)", "rgb": [[255, 255, 255], [0, 0, 0]]},
+    "green": {"label": "Xanh thủy hệ (0,255,0)", "rgb": [[0, 255, 0]]},
+    "brown": {"label": "Nâu địa hình (255,117,0)", "rgb": [[255, 117, 0]]},
+    "red":   {"label": "Đỏ pháp lý/quy hoạch/chỉnh lý (255,0,0)", "rgb": [[255, 0, 0]]}
+  },
+
+  "levels": {
+    "1":  {"name": "Đường bình độ (cơ bản, cái, nửa khoảng cao đều)", "kinds": ["line"], "color": "brown"},
+    "3":  {"name": "Ghi chú độ cao, ghi chú bình độ", "kinds": ["text"], "color": "brown"},
+    "5":  {"name": "Tỷ sâu, tỷ cao", "kinds": ["text", "line"], "color": "black"},
+    "6":  {"name": "Điểm thiên văn, tọa độ QG, độ cao QG", "kinds": ["cell", "point", "text"], "color": "black"},
+    "7":  {"name": "Điểm độ cao kỹ thuật", "kinds": ["cell", "point"], "color": "black"},
+    "8":  {"name": "Điểm địa chính, điểm khống chế đo vẽ, trạm đo", "kinds": ["cell", "point"], "color": "black"},
+    "9":  {"name": "Ghi chú số hiệu điểm, độ cao", "kinds": ["text"], "color": "black"},
+    "10": {"name": "Ranh giới thửa đất hiện trạng", "kinds": ["line"], "color": "black", "boundary": true},
+    "61": {"name": "Ranh giới thửa đất theo giấy tờ", "kinds": ["line", "text"], "color": "red"},
+    "11": {"name": "Điểm nhãn thửa (tâm thửa)", "kinds": ["cell", "point", "text"], "color": "black"},
+    "12": {"name": "Ký hiệu/ghi chú độ rộng bờ thửa", "kinds": ["text", "line", "cell", "dim"], "color": "black"},
+    "13": {"name": "Số thứ tự thửa và gạch ngang nhãn thửa", "kinds": ["text", "line"], "color": "black", "label": "number"},
+    "2":  {"name": "Loại đất hiện trạng", "kinds": ["text"], "color": "black", "label": "landtype"},
+    "4":  {"name": "Diện tích thửa đất", "kinds": ["text"], "color": "black", "label": "area"},
+    "29": {"name": "Loại đất pháp lý", "kinds": ["text"], "color": "black"},
+    "49": {"name": "Thông tin lịch sử (loại đất trước chỉnh lý)", "kinds": ["text", "line"], "color": "red"},
+    "14": {"name": "Tường nhà", "kinds": ["line"], "color": "black", "dashed": true},
+    "15": {"name": "Điểm nhãn nhà", "kinds": ["text", "cell", "point"], "color": "black"},
+    "16": {"name": "Ký hiệu tường chung/riêng/nhờ, ghi chú nhà", "kinds": ["text", "cell", "line", "dim"], "color": "black"},
+    "17": {"name": "Đối tượng điểm tính kinh tế (cell QA1..)", "kinds": ["cell"], "color": "black"},
+    "18": {"name": "Đối tượng điểm tính văn hóa (cell QA2..)", "kinds": ["cell"], "color": "black"},
+    "19": {"name": "Đối tượng điểm tính xã hội (cell QA3..)", "kinds": ["cell"], "color": "black"},
+    "20": {"name": "Đường ray", "kinds": ["line"], "color": "black"},
+    "21": {"name": "Chỉ giới đường sắt", "kinds": ["line"], "color": "black", "boundary": true},
+    "22": {"name": "Phần trải mặt, lòng đường", "kinds": ["line"], "color": "black"},
+    "23": {"name": "Chỉ giới đường", "kinds": ["line"], "color": "black", "boundary": true},
+    "24": {"name": "Chỉ giới đường nằm trong thửa", "kinds": ["line"], "color": "black"},
+    "25": {"name": "Đường nửa tỷ lệ (1 nét)", "kinds": ["line"], "color": "black"},
+    "26": {"name": "Ký hiệu/ghi chú độ rộng đường", "kinds": ["text", "line", "cell", "dim"], "color": "black"},
+    "27": {"name": "Cầu", "kinds": ["line", "cell"], "color": "black"},
+    "28": {"name": "Tên đường, tên phố, tính chất đường", "kinds": ["text"], "color": "black"},
+    "30": {"name": "Đường mép nước", "kinds": ["line"], "color": "green"},
+    "31": {"name": "Đường bờ", "kinds": ["line"], "color": "green", "boundary": true},
+    "32": {"name": "Kênh, mương, rãnh thoát nước", "kinds": ["line"], "color": "green", "boundary": true},
+    "33": {"name": "Giới hạn thủy văn nằm trong thửa", "kinds": ["line"], "color": "green"},
+    "34": {"name": "Suối, kênh, mương nửa tỷ lệ (1 nét)", "kinds": ["line"], "color": "green"},
+    "35": {"name": "Ký hiệu độ rộng, hướng dòng chảy", "kinds": ["text", "line", "cell", "dim"], "color": "green"},
+    "36": {"name": "Cống, đập", "kinds": ["line", "cell"], "color": "green"},
+    "37": {"name": "Đường mặt đê", "kinds": ["line"], "color": "black"},
+    "38": {"name": "Đường giới hạn chân đê", "kinds": ["line"], "color": "black", "boundary": true},
+    "39": {"name": "Tên sông, hồ, ao, suối, kênh, mương", "kinds": ["text", "dim"], "color": "green"},
+    "40": {"name": "Biên giới quốc gia", "kinds": ["line"], "color": "black"},
+    "41": {"name": "Mốc biên giới quốc gia", "kinds": ["cell", "text", "point"], "color": "black"},
+    "42": {"name": "Địa giới tỉnh", "kinds": ["line"], "color": "black"},
+    "43": {"name": "Mốc địa giới tỉnh", "kinds": ["cell", "text", "point"], "color": "black"},
+    "46": {"name": "Địa giới xã", "kinds": ["line"], "color": "black"},
+    "47": {"name": "Mốc địa giới xã", "kinds": ["cell", "text", "point"], "color": "black"},
+    "48": {"name": "Tên địa danh, cụm dân cư", "kinds": ["text"], "color": "black"},
+    "50": {"name": "Chỉ giới đường quy hoạch, hành lang giao thông", "kinds": ["line"], "color": "red"},
+    "51": {"name": "Mốc giới quy hoạch", "kinds": ["cell", "point", "text"], "color": "red"},
+    "52": {"name": "Phân vùng địa danh", "kinds": ["line", "text"], "color": "black"},
+    "53": {"name": "Phân vùng chất lượng", "kinds": ["line", "text"], "color": "black"},
+    "54": {"name": "Phân mảnh bản đồ", "kinds": ["line", "text"], "color": "black"},
+    "55": {"name": "Mạng lưới điện (tùy chọn)", "kinds": ["line", "cell"], "color": "black"},
+    "56": {"name": "Mạng thoát nước thải (tùy chọn)", "kinds": ["line", "cell"], "color": "black"},
+    "57": {"name": "Mạng viễn thông (tùy chọn)", "kinds": ["line", "cell"], "color": "black"},
+    "58": {"name": "Mạng cung cấp nước (tùy chọn)", "kinds": ["line", "cell"], "color": "black"},
+    "59": {"name": "Ranh giới hành lang lưới điện", "kinds": ["line"], "color": "black"},
+    "63": {"name": "Khung, tên mảnh, lưới km, bảng chắp, ghi chú ngoài khung", "kinds": ["line", "text", "cell", "dim"], "color": "black"}
+  },
+
+  "removed_levels": {
+    "44": "Địa giới huyện - bãi bỏ theo TT 23/2025 (từ 01/7/2025)",
+    "45": "Mốc địa giới huyện - bãi bỏ theo TT 23/2025 (từ 01/7/2025)"
+  },
+
+  "labels": {
+    "number_level": 13,
+    "landtype_level": 2,
+    "area_level": 4,
+    "area_decimal": ",",
+    "area_tolerance_m2": 0.15,
+    "small_parcel_m2": 30.0
+  },
+
+  "topology": {
+    "snap_tolerance_m": 0.001,
+    "gap_tolerance_m": 0.30,
+    "short_segment_m": 0.01,
+    "include_admin_boundary": true,
+    "admin_levels": [46, 42, 40],
+    "frame_level": 63
+  },
+
+  "cells_pl21": {
+    "QA1NM": "Ống khói nhà máy", "QA1BT": "Trạm biến thế", "QA1CD": "Cột điện", "QA1PN": "Chợ, doanh nghiệp", "QA1KH": "Điểm kinh tế khác",
+    "QA2TC": "Tháp cổ / chòi cao", "QA2DM": "Đình, chùa, miếu", "QA2NT": "Nhà thờ", "QA2TD": "Tượng đài, bia kỷ niệm", "QA2MC": "Lăng tẩm, nhà mồ, mộ cổ", "QA2KH": "Điểm văn hóa khác",
+    "QA3ND": "Nghĩa địa", "QA3TX": "Trạm xá, bệnh viện", "QA3TH": "Trường học", "QA3KH": "Điểm xã hội khác",
+    "KN1": "Điểm thiên văn", "KN2": "Điểm tọa độ quốc gia", "KN3": "Điểm độ cao quốc gia", "KT1": "Điểm độ cao kỹ thuật", "KT2": "Điểm địa chính", "KT3": "Điểm khống chế đo vẽ", "KT5": "Điểm chi tiết, giao lưới tọa độ",
+    "DQ3": "Mốc biên giới quốc gia", "DT3": "Mốc địa giới tỉnh", "DX3": "Mốc địa giới xã",
+    "NH3": "Tường chung là ranh thửa", "NH3R": "Tường riêng", "GB6": "Cầu hai nét", "GB7": "Cầu nửa theo tỷ lệ", "GB8": "Cầu phi tỷ lệ", "TV7": "Cống theo tỷ lệ", "TV8": "Cống phi tỷ lệ"
+  },
+
+  "_landtype_ghi_chu": "Danh mục mã loại đất tổng hợp TT 27/2018 và TT 08/2024 - CẦN ĐỐI CHIẾU LẠI VỚI TT 08/2024. Mã ngoài danh mục chỉ báo mức cảnh báo.",
+  "landtype_codes": [
+    "LUC", "LUK", "LUN", "BHK", "NHK", "HNK", "CLN", "RSX", "RPH", "RDD", "NTS", "LMU", "NKH", "CNT",
+    "ONT", "ODT", "TSC", "DTS", "DVH", "DXH", "DYT", "DGD", "DTT", "DKH", "DNG", "DSK", "CQP", "CAN",
+    "SKK", "SKT", "SKN", "SKC", "TMD", "SKS", "SKX", "DGT", "DTL", "DDT", "DDL", "DNL", "DBV", "DKG",
+    "DRA", "DCH", "DSH", "DKV", "DXN", "DCK", "DHT", "TON", "TIN", "NTD", "SON", "MNC", "PNK",
+    "BCS", "DCS", "NCS", "CSD"
+  ]
+}
