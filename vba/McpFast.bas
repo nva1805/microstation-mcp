@@ -31,6 +31,8 @@ Private gOutOpen As Boolean
 Private gT(0 To 7) As Double
 Private gStyles As Collection
 Private gWarn As String
+' file opened in the background; always closed in Main, even after an error
+Private gExtDf As DesignFile
 ' line style reading is expensive for custom styles (~0.5 ms/element):
 ' gStyleMode 0 = none, 1 = all, 2 = first 30 per level; gStyleLv = always read on these levels
 Private gStyleMode As Long
@@ -204,6 +206,7 @@ Fail:
     End If
 Finish:
     On Error Resume Next
+    CloseExt
     If gOutOpen Then Close #gOut
     gOutOpen = False
     f = FreeFile
@@ -222,6 +225,7 @@ Private Sub DoDump()
     Set gStyles = New Collection
     If gFile <> "" Then
         Set df = OpenDesignFileForProgram(gFile, True)
+        Set gExtDf = df
         ext = True
         Set m = df.DefaultModelReference
     Else
@@ -270,11 +274,17 @@ Private Sub DoDump()
             End If
         Loop
     End If
+    CloseExt
     W "{""kind"":""count"",""n"":" & cnt & ",""prof"":[" & N(gT(1)) & "," & N(gT(2)) & "," & N(gT(3)) & "," & N(gT(4)) & "," & N(gT(5)) & "," & N(gT(6)) & "," & N(gT(7)) & "]}"
     For i = 0 To 7
         gT(i) = 0
     Next i
-    If ext Then df.Close
+End Sub
+
+Private Sub CloseExt()
+    On Error Resume Next
+    If Not gExtDf Is Nothing Then gExtDf.Close
+    Set gExtDf = Nothing
 End Sub
 
 Private Function LevelJson(m As ModelReference, lv As Level) As String
@@ -463,6 +473,7 @@ End Function
 Private Sub DoCopy()
     Dim df As DesignFile, sm As ModelReference, i As Long, f() As String, res As String
     Set df = OpenDesignFileForProgram(gFile, True)
+    Set gExtDf = df
     Set sm = df.DefaultModelReference
     For i = 1 To gCmdCount
         f = Split(gCmds(i), vbTab)
@@ -478,7 +489,7 @@ Private Sub DoCopy()
         End If
         On Error GoTo 0
     Next i
-    df.Close
+    CloseExt
 End Sub
 
 Private Function CopyOne(sm As ModelReference, f() As String) As String
