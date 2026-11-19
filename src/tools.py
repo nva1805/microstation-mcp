@@ -185,7 +185,8 @@ def register(server: FastMCP) -> None:
                  color: Optional[int] = None, include_geometry: bool = True,
                  include_style: bool = False, offset: int = 0, limit: int = 100) -> Dict[str, Any]:
         """Tìm đối tượng theo bộ lọc, có phân trang.
-        levels: [10, 13]; types: ['Line','LineString','Shape','Text','TextNode','Cell',...] hoặc 'text'/'cell'/'line';
+        levels: [10, 13]; types: ['Line','LineString','Shape','Text','TextNode','Cell',...] hoặc nhóm
+        'lines' (mọi dạng đường)/'texts'/'cells' - 'Line' chỉ là đoạn thẳng 2 điểm;
         bbox: [xmin, ymin, xmax, ymax]; text: chứa chuỗi (không phân biệt hoa thường); text_regex: biểu thức chính quy;
         cell: tên cell; color: chỉ số màu; include_style: đọc tên kiểu nét (chậm hơn, ~0,5 ms/đối tượng
         với kiểu nét tùy biến - mặc định tắt, style='?'). Trả về id, loại, level, màu, nét, range, đỉnh/chữ/cell, độ dài, diện tích (nếu khép kín)."""
@@ -257,7 +258,8 @@ def register(server: FastMCP) -> None:
 
     @server.tool()
     def ms_undo() -> Dict[str, Any]:
-        """Hoàn tác về điểm undo đặt trước lô ms_edit gần nhất (key-in 'undo mark')."""
+        """Hoàn tác lô ms_edit/ms_copy_from GẦN NHẤT (key-in 'undo mark'). Chỉ quay về được 1 lô; lô cũ hơn
+        thì xóa theo id hoặc khôi phục từ file sao lưu."""
         com.run(lambda: com.app().CadInputQueue.SendKeyin("undo mark"))
         return {"undone": True}
 
@@ -369,9 +371,13 @@ def register(server: FastMCP) -> None:
     @server.tool()
     def ms_copy_from(file: str, levels: Optional[List[int]] = None, types: Optional[List[str]] = None,
                      bbox: Optional[List[float]] = None, ids: Optional[List[str]] = None,
-                     skip_existing: bool = True, dry_run: bool = True) -> Dict[str, Any]:
+                     skip_existing: bool = True, points_level: Optional[int] = None, point_tol: float = 0.05,
+                     dry_run: bool = True) -> Dict[str, Any]:
         """Chép đối tượng từ một file .dgn khác (mở ngầm, chỉ đọc) vào FILE ĐANG MỞ - xử lý hoàn toàn trong server,
         dữ liệu không đi qua hội thoại. Lọc theo levels/types/bbox/ids.
+        points_level (vd 12 = số hiệu điểm đo): CHỈ vẽ theo các điểm đã có trong file đích ở level đó - mỗi đỉnh
+        đường nguồn phải có điểm (gốc chữ/cell/điểm) trong bán kính point_tol (m) và được bắt đúng vào tọa độ điểm;
+        đỉnh không có điểm làm đường bị ngắt, chỉ giữ các đoạn có điểm ở cả hai đầu.
         Giữ level, kiểu nét, lực nét. Màu: giữ chỉ số nếu là màu bảng (0-255); màu riêng (true color) của file
         nguồn quy về chỉ số cùng RGB trong file đích, không có thì dùng màu chuẩn PL22 của level.
         Hỗ trợ Line, LineString, Shape, ComplexChain/Shape (thành LineString/Shape), Text; loại khác được báo bỏ qua.
@@ -397,6 +403,38 @@ def register(server: FastMCP) -> None:
         cmds: List[Dict[str, Any]] = []
         skipped: Dict[str, int] = {}
         dup = 0
+        snap_stats = {"vertices_on_point": 0, "vertices_without_point": 0, "lines_split": 0, "lines_dropped": 0}
+        snap = None
+        if points_level is not None:
+            from shapely import STRtree
+            from shapely.geometry import Point
+            pe = [e for e in engine.dump(levels=[points_level], geometry=True)["elements"] if "o" in e or
+                  (e["t"] == 22 and e.get("v"))]
+            ppos = [e["o"] if "o" in e else e["v"][0] for e in pe]
+            if not ppos:
+                raise ValueError(f"File đích không có điểm nào ở level {points_level}")
+            pgeo = [Point(p) for p in ppos]
+            ptree = STRtree(pgeo)
+
+            def snap(v):
+                """Trả các chuỗi đỉnh liên tiếp đều có điểm, đã bắt vào tọa độ điểm."""
+                runs, cur = [], []
+                for p in v:
+                    j = ptree.nearest(Point(p))
+                    if pgeo[j].distance(Point(p)) <= point_tol:
+                        snap_stats["vertices_on_point"] += 1
+                        q = list(ppos[j])
+                        if not cur or cur[-1] != q:
+                            cur.append(q)
+                    else:
+                        snap_stats["vertices_without_point"] += 1
+                        if len(cur) >= 2:
+                            runs.append(cur)
+                        cur = []
+                if len(cur) >= 2:
+                    runs.append(cur)
+                return runs
+
         for e in src["elements"]:
             t, lv = e["t"], e["lv"]
             c: Dict[str, Any] = {"level": lv}
@@ -421,10 +459,25 @@ def register(server: FastMCP) -> None:
                 k = analysis.type_name(t)
                 skipped[k] = skipped.get(k, 0) + 1
                 continue
-            if skip_existing and "points" in c and key(lv, c["points"]) in have:
-                dup += 1
-                continue
-            cmds.append(_defaults(c, rules))
+            variants = [c]
+            if snap is not None and "points" in c:
+                pts = c["points"]
+                if c["op"] == "shape" and pts[0] != pts[-1]:
+                    pts = pts + [pts[0]]
+                runs = snap(pts)
+                if len(runs) == 1 and len(runs[0]) == len(pts) and c["op"] == "shape":
+                    variants = [dict(c, points=runs[0][:-1] if runs[0][0] == runs[0][-1] else runs[0])]
+                else:
+                    if not runs:
+                        snap_stats["lines_dropped"] += 1
+                    elif len(runs) > 1 or len(runs[0]) < len(pts):
+                        snap_stats["lines_split"] += 1
+                    variants = [dict(c, op="line" if len(r) == 2 else "linestring", points=r) for r in runs]
+            for v in variants:
+                if skip_existing and "points" in v and key(lv, v["points"]) in have:
+                    dup += 1
+                    continue
+                cmds.append(_defaults(v, rules))
         by: Dict[str, int] = {}
         for c in cmds:
             k = f'level {c["level"]} {c["op"]}'
@@ -432,6 +485,9 @@ def register(server: FastMCP) -> None:
         out: Dict[str, Any] = {"source": src["header"].get("file"), "target": _active_path(),
                                "read_source_s": src["seconds"], "to_copy": len(cmds), "by_level_op": by,
                                "skipped_unsupported": skipped, "skipped_already_present": dup}
+        if snap is not None:
+            out["points_level"] = points_level
+            out["snap"] = snap_stats
         if dry_run or not cmds:
             out["dry_run"] = dry_run
             return out

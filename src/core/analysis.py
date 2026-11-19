@@ -47,25 +47,26 @@ def type_name(t: int) -> str:
     return ELEMENT_TYPES.get(t, f"Type{t}")
 
 
+GROUPS = {"lines": [3, 4, 6, 11, 12, 14, 15, 16], "texts": [17, 7], "cells": [2, 35]}
+
+
 def parse_types(types: Optional[Iterable[Any]]) -> Optional[List[int]]:
+    """Tên loại (Line, LineString, Shape, Text, TextNode, Cell...), số loại, hoặc nhóm lines/texts/cells.
+    Lưu ý: 'Line' chỉ là đoạn thẳng 2 điểm; mọi dạng đường dùng 'lines'."""
     if not types:
         return None
-    out = []
+    out: List[int] = []
     for t in types:
         if isinstance(t, int) or (isinstance(t, str) and t.isdigit()):
             out.append(int(t))
+            continue
+        k = str(t).strip().lower()
+        if k in GROUPS:
+            out += GROUPS[k]
+        elif k in TYPE_CODES:
+            out.append(TYPE_CODES[k])
         else:
-            k = str(t).strip().lower()
-            if k in TYPE_CODES:
-                out.append(TYPE_CODES[k])
-            elif k == "text":
-                out += [17, 7]
-            elif k == "cell":
-                out += [2, 35]
-            elif k == "line":
-                out += [3, 4, 6, 12, 14, 16]
-            else:
-                raise ValueError(f"Loại đối tượng không rõ: {t}. Dùng: {sorted(TYPE_CODES)} hoặc text/cell/line")
+            raise ValueError(f"Loại đối tượng không rõ: {t}. Dùng {sorted(TYPE_CODES)} hoặc nhóm {sorted(GROUPS)}")
     return out
 
 

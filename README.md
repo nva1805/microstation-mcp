@@ -38,7 +38,7 @@ Claude ──MCP stdio──> Python server ──COM (điều khiển)──> M
 | `kcs_check(file?, checks?)` | KCS: phân lớp, màu/nét, topology, dựng thửa + nhãn + diện tích; xuất CSV |
 | `ms_view(action)` | fit / zoom_window / zoom_to / zoom_ids + ảnh vùng đó (dựng từ dữ liệu, tô đậm đối tượng) |
 | `ms_render(file?, bbox?, levels?, highlight?)` | Dựng ảnh từ dữ liệu, không đổi khung nhìn; dùng được cho file mở ngầm |
-| `ms_copy_from(file, levels?...)` | Chép đối tượng từ file khác vào file đang mở, xử lý trong server (302 đường trong 0,4 s), bỏ trùng |
+| `ms_copy_from(file, levels?, points_level?...)` | Chép đối tượng từ file khác vào file đang mở, xử lý trong server, bỏ trùng. `points_level=12`: chỉ vẽ theo điểm đo có sẵn (bắt đỉnh vào điểm, ngắt nơi không có điểm) |
 | `ms_screenshot` | Chụp cửa sổ thật (chỉ đúng khi MicroStation đang hiện trên màn hình) |
 | `ms_open`, `ms_save` | Mở file lên cửa sổ / lưu |
 | `ms_keyin(cmd)` | Key-in (chặn vba, mdl, delete, save, exit, ...) |
